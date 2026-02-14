@@ -1,0 +1,3 @@
+gclib==1.0
+pyserial==3.5
+robot==0.0.1

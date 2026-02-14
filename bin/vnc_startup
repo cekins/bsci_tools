@@ -1,0 +1,11 @@
+
+client_root_passwd=$( echo "MjA1QDExMVNCdXM=" | base64 --decode)
+
+user="test"
+ip=10.63.32.88
+
+SSH="sshpass -p $client_root_passwd ssh -oStrictHostKeyChecking=no -oLogLevel=ERROR root@$ip"
+
+echo "Starting VNC server on client machine"
+$SSH chown -R $user:$user /run/user/0
+timeout 10 $SSH runuser -l $user -c "/home/$user/start-vino-server.sh &"

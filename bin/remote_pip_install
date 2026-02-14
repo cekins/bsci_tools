@@ -1,0 +1,26 @@
+#!/bin/bash
+# Script to install python package onto remote system
+
+# standard error handling
+set -euo pipefail
+
+
+read -s -p "password: " PASSWORD
+
+ADDRESS="root@10.96.36.80"
+
+# create package
+cd /home/ekinsc/Sources/rvc/AutomatedTests/tools/packages
+echo "titan_motor" | ./createPackage.sh
+
+# get name
+PACKAGE_PATH="$(ls /home/ekinsc/Sources/rvc/AutomatedTests/tools/packages/titan_motor/dist/titan_motor*.whl)"
+PACKAGE=$(basename "$PACKAGE_PATH")
+PACKAGE_PATH_REMOTE=/tmp/"$PACKAGE"
+
+# move package
+sshpass -p "$PASSWORD" rsync "$PACKAGE_PATH" "$ADDRESS":"$PACKAGE_PATH_REMOTE"
+
+# install package
+sshpass -p "$PASSWORD" ssh "$ADDRESS" "python2 -m pip install --force-reinstall $PACKAGE_PATH_REMOTE"
+
