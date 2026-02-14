@@ -1,0 +1,148 @@
+#!/bin/bash
+#### Description: This script is meant to make verification point
+#### comparison and creation using the tools located in /opt/squish-6.4/bin
+#### easier.
+#### Written by: Chander Ekins (ekinsc) - Chandler.Ekins@bsci.com
+
+
+## Library file imports 
+TOOLS_DIR="/opt/squish-6.4/bin/"
+LIB_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/../lib/"
+source ${LIB_DIR}functions.sh
+
+## Message variables
+HELP_MSG="Script for creating and comparing verification points.\n\nOptions:\n\t-h  help\n\t-d difference"
+
+## Style variables
+RED='\e[0;31m'
+GRN='\e[0;32m'
+BLU='\e[0;34m'
+WHT='\e[0;107m'
+BLD='\e[1m'
+NC='\e[0m'
+HED=$BLU$BLD
+
+## Parse flags
+DIFF_FLAG=false
+JENKINS_FLAG=false
+while getopts "hdj:" ARGOPTS
+do
+	case $ARGOPTS in
+		h)
+			printf "$HELP_MSG"
+			exit 0
+			;;
+		d)	
+			DIFF_FLAG=true
+			;;
+		j)
+			JENKINS_FLAG=true
+			JENKINS_DIR="$OPTARG"
+			;;
+	esac
+done
+
+## Print newline before start of script 
+printf "\n"
+if $JENKINS_FLAG
+then
+	DATA_DIR=$(getJenkinsDataDir $JENKINS_DIR)
+else
+	DATA_DIR=$(getDataDir)
+fi
+SCREENSHOT_DIR=$(getScreenshotDir "$DATA_DIR")
+
+## Iterate over screenshots located in Test Results
+GENERATED_VP_NAMES=()
+# TODO replace this ls with something more robust
+for SCREENSHOT_NAME in $(ls "$SCREENSHOT_DIR")
+do
+
+	## Generate needed file names
+	SCREENSHOT_FILE=$SCREENSHOT_DIR$SCREENSHOT_NAME
+	TC_NAME=$(getTestCaseName "$DATA_DIR")
+	VP_BASE=$(getVPBase $SCREENSHOT_NAME $TC_NAME)
+	VP_DIR=$(getVPDir $TC_NAME)
+
+	## Get matching VPs and check that screenshot has VPs
+	VP_FILES=$(getMatchingVPs $VP_BASE $VP_DIR)
+	VP_FILES=($(sort <<<"$VP_FILES"))
+
+	if [[ ${#VP_FILES[@]} != 0 ]]
+	then
+
+		## Iterate over matching VPs
+		printf "${HED}%s / ${NC}%s :\n\n" "${VP_BASE}" "${SCREENSHOT_NAME}"
+		for VP_FILE in "${VP_FILES[@]}"
+		do
+			## Run script to compare VP
+			TESTVP_OUTPUT=$(${TOOLS_DIR}testvp --image "$VP_FILE" "junk" "$SCREENSHOT_FILE")
+
+			## Print output of testvp command
+			if [[ $TESTVP_OUTPUT == *"match"* ]]
+			then
+				CLR=$GRN
+			else
+				CLR=$RED
+			fi
+			printf "\t${CLR}%s\n\t%s${NC}\n\n" "${VP_FILE#${VP_DIR}}" "${TESTVP_OUTPUT}"
+
+			## If -d is enabled then visual comparisons always executed
+			if $DIFF_FLAG
+			then
+				${TOOLS_VP}vpdiff "$VP_FILE" "junk" "$SCREENSHOT_FILE"
+			fi	
+		done
+
+		## Determine name for new VP 
+		HIGHEST_VP_FILE=${VP_FILES[-1]}
+		if [[ $HIGHEST_VP_FILE =~ .*_[0-9]+$ ]]
+		then
+			NEW_VP_NUM=$((${HIGHEST_VP_FILE##*_} + 1))
+		else
+			NEW_VP_NUM=1
+		fi
+		NEW_VP_FILE="${VP_FILES[0]}_$NEW_VP_NUM"
+
+		## Prompt user with menu options
+		MENU_PROMPT="(G)enerate ${NEW_VP_FILE##*/}\n(V)isual Compare\n(N)ext VP\n(Q)uit script\n\n"
+		printf "$MENU_PROMPT"
+		while true; do
+			read -p "(g/v/n/q)?"  op 
+			case $op in 
+				[Gg]* ) ## Use opt tools to generate a new VP from screenshot 
+					${TOOLS_DIR}convertvp --tovp "$NEW_VP_FILE" "$SCREENSHOT_FILE" "WIDGET_NAME_PLACEHOLDER"
+
+					## Keep track of which VPs have been generated thus far in the script 
+					GENERATED_VP_NAMES+=("${NEW_VP_FILE##*/}")
+					;;
+
+				[Vv]* ) ## Use opt tools to do a visual comparison of all matching VPs to the screenshot
+					for VP_FILE in "${VP_FILES[@]}"
+					do
+						${TOOLS_DIR}vpdiff "$VP_FILE" "junk" "$SCREENSHOT_FILE"
+					done
+					;;
+
+				[Nn]* ) ## Move on to the next screenshot
+					break
+					;;
+		
+				[Qq]* ) ## Quit the script
+					exit 0
+					;;
+
+				* ) ## Invalid command was entered
+					;;
+
+			esac
+		done
+		printf "\n"
+	fi	
+done
+
+## List the screenshots created by the script in the current run
+if [[ ${#GENERATED_VP_NAMES[@]} != 0 ]]; then
+	printf "${BLD}%s${NC}\n" "Generated VPs:" 
+	printf "\t%s\n" "${GENERATED_VP_NAMES[@]}"
+fi
